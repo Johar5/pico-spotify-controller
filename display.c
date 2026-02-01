@@ -41,36 +41,59 @@ void display_init(void) {
     
     lcd_write_cmd(0x3A); lcd_write_data(0x55); // Pixel Format: 16-bit
     
-    // 0x28 = Exchange Row/Col (Landscape) + BGR color order
-    lcd_write_cmd(0x36); lcd_write_data(0x28); 
+    // 0x88 = portrait
+    lcd_write_cmd(0x36); lcd_write_data(0x88); 
     // -----------------------
     
     lcd_write_cmd(0x29); // Display ON
     sleep_ms(50);
 }
 
-void display_fill(uint16_t color) {
-    // Define the "Window" to fill (Entire screen 320x240)
-    lcd_write_cmd(0x2A); // Column Set
-    lcd_write_data(0); lcd_write_data(0); 
-    lcd_write_data(0x01); lcd_write_data(0x3F); // 319
-    
-    lcd_write_cmd(0x2B); // Page Set
-    lcd_write_data(0); lcd_write_data(0);
-    lcd_write_data(0x00); lcd_write_data(0xEF); // 239
+void draw_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+    if ((x >= 240) || (y >= 320)) return;
+    if ((x + w - 1) >= 240) w = 240 - x;
+    if ((y + h - 1) >= 320) h = 320 - y;
 
-    lcd_write_cmd(0x2C); // Memory Write
-    
-    // Prepare the pixel color bytes
+    //Set window 
+    lcd_write_cmd(0x2A);
+    lcd_write_data(x >> 8); lcd_write_data(x & 0xFF);
+    lcd_write_data((x + w - 1) >> 8); lcd_write_data((x + w - 1) & 0xFF);
+
+    lcd_write_cmd(0x2B);
+    lcd_write_data(y >> 8); lcd_write_data(y & 0xFF);
+    lcd_write_data((y + h - 1) >> 8); lcd_write_data((y + h - 1) & 0xFF);
+
+    //Write memory
+    lcd_write_cmd(0x2C);
+
+    //Prepare color bytes
     uint8_t hi = color >> 8;
     uint8_t lo = color & 0xFF;
 
-    // Blast data
-    gpio_put(PIN_DC_LCD, 1);
+    gpio_put(PIN_DC_LCD, 1); 
     gpio_put(PIN_CS_LCD, 0);
-    for(int i = 0; i < 76800; i++) {
-        spi_write_blocking(SPI_PORT_LCD, &hi, 1);
-        spi_write_blocking(SPI_PORT_LCD, &lo, 1);
+
+    //Optimization strategy: Create a small buffer to speed up SPI
+    //Writing chunks is faster then 1 byte at a time
+    uint8_t line_buffer[64];
+    for (int i = 0; i < 32; i++) {
+        line_buffer[i*2] = hi;
+        line_buffer[i*2 + 1] = lo;
     }
+
+    int total_pixels = w * h;
+    int bytes_per_chunk = 64;
+    int pixels_per_chunk = bytes_per_chunk / 2;
+
+    while(total_pixels > 0) {
+        int pixels_to_send = (total_pixels > pixels_per_chunk) ? pixels_per_chunk : total_pixels;
+        spi_write_blocking(SPI_PORT_LCD, line_buffer, pixels_to_send * 2);
+        total_pixels -= pixels_to_send;
+    }
+
     gpio_put(PIN_CS_LCD, 1);
+}
+
+void display_fill(uint16_t color) {
+    draw_rect(0,0,240,320,color);
 }
