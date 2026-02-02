@@ -60,19 +60,19 @@ int main() {
 
             if (py > 250) { // Button Area
                 if (px < 80) {
-                    printf("<< PREV\n");
+                    printf("CMD:PREV\n");
                     draw_rect(20, 265, 40, 40, C_GREEN); // Highlight
                     sleep_ms(100);
                     draw_rect(20, 265, 40, 40, C_WHITE); // Restore
                 } 
                 else if (px > 160) {
-                    printf(">> NEXT\n");
+                    printf("CMD:NEXT\n");
                     draw_rect(180, 265, 40, 40, C_GREEN);
                     sleep_ms(100);
                     draw_rect(180, 265, 40, 40, C_WHITE);
                 } 
                 else {
-                    printf("|| PLAY\n");
+                    printf("CMD:PLAY\n");
                     draw_rect(100, 265, 40, 40, C_WHITE); // Blink White
                     sleep_ms(100);
                     draw_rect(100, 265, 40, 40, C_GREEN); // Restore Green
