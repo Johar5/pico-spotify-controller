@@ -20,8 +20,8 @@ static void lcd_write_data(uint8_t data) {
 
 // --- Public Functions ---
 void display_init(void) {
-    // 1. Setup SPI
-    spi_init(SPI_PORT_LCD, 20000000);
+    // 1. Setup SPI (Maximized speed)
+    spi_init(SPI_PORT_LCD, 40000000);
     gpio_set_function(PIN_SCK_LCD, GPIO_FUNC_SPI);
     gpio_set_function(PIN_MOSI_LCD, GPIO_FUNC_SPI);
 
@@ -96,4 +96,27 @@ void draw_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
 
 void display_fill(uint16_t color) {
     draw_rect(0,0,240,320,color);
+}
+
+void display_set_window(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+    if ((x >= 240) || (y >= 320)) return;
+    if ((x + w - 1) >= 240) w = 240 - x;
+    if ((y + h - 1) >= 320) h = 320 - y;
+
+    lcd_write_cmd(0x2A);
+    lcd_write_data(x >> 8); lcd_write_data(x & 0xFF);
+    lcd_write_data((x + w - 1) >> 8); lcd_write_data((x + w - 1) & 0xFF);
+
+    lcd_write_cmd(0x2B);
+    lcd_write_data(y >> 8); lcd_write_data(y & 0xFF);
+    lcd_write_data((y + h - 1) >> 8); lcd_write_data((y + h - 1) & 0xFF);
+
+    lcd_write_cmd(0x2C);
+}
+
+void display_write_pixels(const uint8_t *data, size_t len) {
+    gpio_put(PIN_DC_LCD, 1); 
+    gpio_put(PIN_CS_LCD, 0);
+    spi_write_blocking(SPI_PORT_LCD, data, len);
+    gpio_put(PIN_CS_LCD, 1);
 }

@@ -1,3 +1,5 @@
 pyserial
 spotipy
 python-dotenv
+requests
+pillow

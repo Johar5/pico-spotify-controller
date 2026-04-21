@@ -5,6 +5,9 @@ import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
+import requests
+from PIL import Image
+from io import BytesIO
 
 # Load credentials from .env file
 load_dotenv()
@@ -30,6 +33,56 @@ def find_pico_port():
             return port.device
     return None
 
+def send_art_to_pico(ser, img_url):
+    print("Fetching album art...")
+    try:
+        response = requests.get(img_url)
+        img = Image.open(BytesIO(response.content)).convert('RGB')
+        img = img.resize((200, 200))
+        
+        # Convert to RGB565: RRRRRGGG GGGBBBBB
+        pixels = list(img.getdata())
+        rgb565_data = bytearray()
+        for r, g, b in pixels:
+            val = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+            rgb565_data.append(val >> 8)
+            rgb565_data.append(val & 0xFF)
+            
+        print("Sending art to Pico...")
+        ser.write(b"CMD:ART_START\n")
+        ser.flush()
+        
+        # Wait for ACK
+        start_t = time.time()
+        ack_received = False
+        while time.time() - start_t < 2:
+            if ser.in_waiting > 0:
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                if line == "ACK:ART_START":
+                    ack_received = True
+                    break
+        
+        if not ack_received:
+            print("Timeout waiting for ACK:ART_START")
+            return
+            
+        # Send image data in larger chunks without artificial sleep
+        chunk_size = 8192
+        for i in range(0, len(rgb565_data), chunk_size):
+            ser.write(rgb565_data[i:i+chunk_size])
+            ser.flush()
+        
+        # Wait for completion
+        start_t = time.time()
+        while time.time() - start_t < 5:
+            if ser.in_waiting > 0:
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                if line == "ACK:ART_DONE":
+                    print("Art transfer complete!")
+                    break
+    except Exception as e:
+        print(f"Error transferring art: {e}")
+
 def main():
     print("--- Spotify API Bridge Started ---")
 
@@ -43,9 +96,13 @@ def main():
         time.sleep(2)
         print(f"Connected to {port_name}")
 
+        last_track_id = None
+        last_check_time = 0
+
         while True:
+            # Check for incoming commands
             if ser.in_waiting > 0:
-                line = ser.readline().decode('utf-8').strip()
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
 
                 if line.startswith("CMD:"):
                     try: 
@@ -55,13 +112,40 @@ def main():
                                 sp.pause_playback()
                             else:
                                 sp.start_playback()
+                            time.sleep(0.2) # Give Spotify API a moment to register playback
+                            last_check_time = 0 # Force a re-poll immediately
                         elif line == "CMD:NEXT":
                             sp.next_track()
+                            time.sleep(0.2) 
+                            last_check_time = 0
                         elif line == "CMD:PREV":
                             sp.previous_track()
+                            time.sleep(0.2)
+                            last_check_time = 0
                     except spotipy.exceptions.SpotifyException as e:
                         print("Spotify API error:", e)
-            time.sleep(0.1)
+            
+            # Periodically check for track changes
+            now = time.time()
+            if now - last_check_time > 1.5:  # Check more frequently
+                last_check_time = now
+                try:
+                    current_track = sp.current_user_playing_track()
+                    if current_track and current_track['item']:
+                        track_id = current_track['item']['id']
+                        if track_id != last_track_id:
+                            last_track_id = track_id
+                            print(f"New track playing: {current_track['item']['name']}")
+                            # Get the medium-sized album art (usually 300x300, index 1)
+                            images = current_track['item']['album']['images']
+                            if len(images) > 0:
+                                # Prioritize mid-size image or fallback
+                                img_url = images[1]['url'] if len(images) > 1 else images[0]['url']
+                                send_art_to_pico(ser, img_url)
+                except Exception as e:
+                    pass # Ignore temporary errors
+            
+            time.sleep(0.05)
     except serial.SerialException as e:
         print("Serial port error:", e)
 
