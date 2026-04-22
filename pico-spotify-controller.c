@@ -19,22 +19,6 @@ long map(long x, long in_min, long in_max, long out_min, long out_max) {
 // --- DRAW UI ---
 void draw_interface() {
     display_fill(C_BLACK);
-
-    // 1. Draw Button Bar Background (Bottom 70 pixels)
-    draw_rect(0, 250, 240, 70, C_GRAY);
-
-    // 2. Draw "Fake" Buttons (Just colored squares for now)
-    // Prev Button
-    draw_rect(20, 265, 40, 40, C_WHITE);
-    
-    // Play Button (Green)
-    draw_rect(100, 265, 40, 40, C_GREEN);
-    
-    // Next Button
-    draw_rect(180, 265, 40, 40, C_WHITE);
-    
-    // 3. Draw "Art Placeholder"
-    draw_rect(20, 20, 200, 200, 0x18E3); // Dark Gray box for art
 }
 
 int main() {
@@ -55,15 +39,14 @@ int main() {
             if (c == '\n' || c == '\r') {
                 if (cmdpos > 0) {
                     cmdbuf[cmdpos] = '\0';
-                    if (strcmp(cmdbuf, "CMD:ART_START") == 0) {
-                        printf("ACK:ART_START\n");
+                    int rx, ry, rw, rh;
+                    if (sscanf(cmdbuf, "CMD:DRAW_START %d %d %d %d", &rx, &ry, &rw, &rh) == 4) {
+                        printf("ACK:DRAW_START\n");
                         
-                        int art_w = 200;
-                        int art_h = 200;
-                        int total_bytes = art_w * art_h * 2;
+                        int total_bytes = rw * rh * 2;
                         int received_bytes = 0;
                         
-                        display_set_window(20, 20, art_w, art_h);
+                        display_set_window(rx, ry, rw, rh);
                         
                         uint8_t pixel_buf[1024];
                         int buf_pos = 0;
@@ -82,7 +65,7 @@ int main() {
                                 break; // timeout
                             }
                         }
-                        printf("ACK:ART_DONE\n");
+                        printf("ACK:DRAW_DONE\n");
                     }
                     cmdpos = 0;
                 }
@@ -109,21 +92,21 @@ int main() {
             if (py > 250) { // Button Area
                 if (px < 80) {
                     printf("CMD:PREV\n");
-                    draw_rect(20, 265, 40, 40, C_GREEN); // Highlight
+                    draw_rect(10, 312, 60, 4, C_GREEN); // Highlight line
                     sleep_ms(40);
-                    draw_rect(20, 265, 40, 40, C_WHITE); // Restore
+                    draw_rect(10, 312, 60, 4, C_BLACK); // Restore
                 } 
                 else if (px > 160) {
                     printf("CMD:NEXT\n");
-                    draw_rect(180, 265, 40, 40, C_GREEN);
+                    draw_rect(170, 312, 60, 4, C_GREEN);
                     sleep_ms(40);
-                    draw_rect(180, 265, 40, 40, C_WHITE);
+                    draw_rect(170, 312, 60, 4, C_BLACK);
                 } 
                 else {
                     printf("CMD:PLAY\n");
-                    draw_rect(100, 265, 40, 40, C_WHITE); // Blink White
+                    draw_rect(90, 312, 60, 4, C_GREEN); 
                     sleep_ms(40);
-                    draw_rect(100, 265, 40, 40, C_GREEN); // Restore Green
+                    draw_rect(90, 312, 60, 4, C_BLACK); 
                 }
                 sleep_ms(80);
             }
