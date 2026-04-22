@@ -35,21 +35,33 @@ def find_pico_port():
     return None
 
 def get_font(url, filename, size):
-    cache_dir = ".cache"
+    # Use absolute path for caching so it never downloads repeatedly depending on workdir
+    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
     if not os.path.exists(cache_dir):
         os.makedirs(cache_dir)
     filepath = os.path.join(cache_dir, filename)
+    
     if not os.path.exists(filepath):
         try:
-            print(f"Downloading font {filename}...")
-            r = requests.get(url)
-            with open(filepath, 'wb') as f:
-                f.write(r.content)
+            print(f"Downloading font {filename} (Initial setup only)...")
+            r = requests.get(url, timeout=10)
+            if r.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    f.write(r.content)
+            else:
+                print(f"Failed to download font: {r.status_code}")
+                return ImageFont.load_default()
         except Exception as e:
+            print(f"Error downloading font: {e}")
             return ImageFont.load_default()
     try:
         return ImageFont.truetype(filepath, size)
     except:
+        # If the file is corrupted, delete it so it can retry next run
+        try:
+            os.remove(filepath)
+        except:
+            pass
         return ImageFont.load_default()
 
 # Global cache to prevent re-downloading same album art
@@ -67,30 +79,69 @@ def render_full_canvas(img_url, title, artist, is_playing):
         if img_url != cached_art_url:
             try:
                 response = requests.get(img_url, timeout=3)
-                cached_art_image = Image.open(BytesIO(response.content)).convert('RGB').resize((200, 200))
+                cached_art_image = Image.open(BytesIO(response.content)).convert('RGB').resize((200, 200)) 
                 cached_art_url = img_url
             except:
                 pass
         
         if cached_art_image:
-            canvas.paste(cached_art_image, (20, 10))
+            canvas.paste(cached_art_image, (20, 5)) # Centered horizontally, pushed to top
             
     # 2. Text
-    font_bold_url = "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Bold.ttf"
-    font_reg_url = "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Regular.ttf"
+    font_bold_size = 20
+    font_reg_size = 14 # slightly smaller default artist font to make it distinct
     
-    font_bold = get_font(font_bold_url, "Roboto-Bold.ttf", 20)
-    font_reg = get_font(font_reg_url, "Roboto-Regular.ttf", 16)
+    def get_fonts(bold_size, reg_size):
+        try:
+            fb = ImageFont.truetype("meiryob.ttc", bold_size)
+            fr = ImageFont.truetype("meiryo.ttc", reg_size)
+            return fb, fr
+        except:
+            try:
+                fb = ImageFont.truetype("msgothic.ttc", bold_size)
+                fr = ImageFont.truetype("msgothic.ttc", reg_size)
+                return fb, fr
+            except:
+                try:
+                    fb = ImageFont.truetype("arialbd.ttf", bold_size)
+                    fr = ImageFont.truetype("arial.ttf", reg_size)
+                    return fb, fr
+                except:
+                    return ImageFont.load_default(), ImageFont.load_default()
+
+    font_bold, font_reg = get_fonts(font_bold_size, font_reg_size)
     
+    # Scale down title if too big
     try:
         tw = draw.textlength(title, font=font_bold)
-        aw = draw.textlength(artist, font=font_reg)
     except:
         tw = font_bold.getsize(title)[0]
+        
+    while tw > 230 and font_bold_size > 10:
+        font_bold_size -= 1
+        font_bold, _ = get_fonts(font_bold_size, font_reg_size)
+        try:
+            tw = draw.textlength(title, font=font_bold)
+        except:
+            tw = font_bold.getsize(title)[0]
+            
+    # Scale down artist if too big
+    try:
+        aw = draw.textlength(artist, font=font_reg)
+    except:
         aw = font_reg.getsize(artist)[0]
         
-    draw.text((120 - tw / 2, 220), title, font=font_bold, fill=(255, 255, 255))
-    draw.text((120 - aw / 2, 245), artist, font=font_reg, fill=(180, 180, 180))
+    while aw > 230 and font_reg_size > 9:
+        font_reg_size -= 1
+        _, font_reg = get_fonts(font_bold_size, font_reg_size)
+        try:
+            aw = draw.textlength(artist, font=font_reg)
+        except:
+            aw = font_reg.getsize(artist)[0]
+            
+    # Draw text centered, adjusting y-position slightly to account for font height differences
+    draw.text((120 - tw / 2, 212 + (20 - font_bold_size) // 2), title, font=font_bold, fill=(255, 255, 255))
+    draw.text((120 - aw / 2, 238 + (14 - font_reg_size) // 2), artist, font=font_reg, fill=(180, 180, 180))
     
     # 3. Buttons
     px, py = 50, 285 # Prev
@@ -190,7 +241,7 @@ def main():
                                 
                                 # Instantly re-render buttons
                                 canvas = render_full_canvas(last_img_url, last_title, last_artist, last_is_playing)
-                                # ONLY update the Play/Pause circle footprint (X:90, Y:260, W:60, H:50) for maximum speed!
+                                # ONLY update the Play/Pause circle footprint (X:90, Y:260, W:60, H:50)
                                 send_patch_to_pico(ser, canvas, 90, 260, 60, 50)
                                 last_check_time = time.time() + 1.0 # delay next sync
                             else:
@@ -239,11 +290,13 @@ def main():
                             
                             if track_changed:
                                 print("Flushing track changes iteratively to maintain speed...")
-                                # Send Album Art Box first
-                                send_patch_to_pico(ser, canvas, 20, 10, 200, 200)
-                                # Send Meta Text Box
+                                # Send Top Half of Image (X:0 Y:0 W:240 H:105)
+                                send_patch_to_pico(ser, canvas, 0, 0, 240, 105)
+                                # Send Bottom Half of Image (X:0 Y:105 W:240 H:105)
+                                send_patch_to_pico(ser, canvas, 0, 105, 240, 105)
+                                # Send Meta Text Box (X:0 Y:210 W:240 H:50)
                                 send_patch_to_pico(ser, canvas, 0, 210, 240, 50)
-                                # Send Buttons Box
+                                # Send Buttons Box (X:0 Y:260 W:240 H:60)
                                 send_patch_to_pico(ser, canvas, 0, 260, 240, 60)
                             elif play_changed:
                                 print("Flushing ONLY play button state...")

@@ -19,6 +19,19 @@ long map(long x, long in_min, long in_max, long out_min, long out_max) {
 // --- DRAW UI ---
 void draw_interface() {
     display_fill(C_BLACK);
+    
+    // Draw an 8-bit hourglass "Waiting" icon in the center
+    int bx = 100, by = 120;
+    draw_rect(bx, by, 40, 10, C_GRAY);
+    draw_rect(bx+5, by+10, 30, 10, C_GRAY);
+    draw_rect(bx+10, by+20, 20, 10, C_GRAY);
+    draw_rect(bx+15, by+30, 10, 20, C_GRAY);
+    draw_rect(bx+10, by+50, 20, 10, C_GRAY);
+    draw_rect(bx+5, by+60, 30, 10, C_GRAY);
+    draw_rect(bx, by+70, 40, 10, C_GRAY);
+    
+    // Add a little green loading indicator inside the top of hourglass
+    draw_rect(bx+15, by+5, 10, 5, C_GREEN);
 }
 
 int main() {
